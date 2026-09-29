@@ -37,6 +37,14 @@ Web flashers that accept a custom `.bin` also work, such as the "Custom firmware
 mode: hold **BOOT**, tap **RST**, then release **BOOT** (these are the recessed buttons on the case
 edge).
 
+The merged image also overwrites the flash area that stores Bluetooth pairing keys. After flashing it,
+"forget" the watch in your phone's Bluetooth settings and pair again. To update an existing MeshWatch
+install without losing the pairing, flash only the app image at `0x10000`:
+
+```sh
+esptool --chip esp32s3 --port /dev/cu.usbmodemXXXX write-flash 0x10000 meshwatch-*-app.bin
+```
+
 **Back up the stock firmware first** if you want to be able to go back:
 
 ```sh
