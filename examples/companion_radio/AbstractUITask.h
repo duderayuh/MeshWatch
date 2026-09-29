@@ -5,6 +5,7 @@
 #include <helpers/ui/UIScreen.h>
 #include <helpers/SensorManager.h>
 #include <helpers/MultiSerialInterface.h>
+#include <helpers/ContactInfo.h>
 #include <Arduino.h>
 
 #ifdef PIN_BUZZER
@@ -43,4 +44,13 @@ public:
   virtual void newMsg(uint8_t path_len, const char* from_name, const char* text, int msgcount) = 0;
   virtual void notify(UIEventType t = UIEventType::none) = 0;
   virtual void loop() = 0;
+
+  // Richer events for UIs that keep their own message history (all optional).
+  // path_len is 0xFF for direct-routed packets, snr is in dB.
+  virtual void onContactMsg(const ContactInfo& from, uint8_t path_len, uint32_t sender_timestamp, const char* text, float snr) { }
+  virtual void onChannelMsg(uint8_t channel_idx, const char* channel_name, uint8_t path_len, uint32_t timestamp, const char* text, float snr) { }
+  virtual void onAckRecv(uint32_t ack_crc) { }
+  // Messages the connected app sent through this radio (so an on-device history stays complete).
+  virtual void onAppSentDirect(const ContactInfo& to, const char* text, uint8_t attempt, uint32_t expected_ack) { }
+  virtual void onAppSentChannel(uint8_t channel_idx, const char* text, int len) { }
 };

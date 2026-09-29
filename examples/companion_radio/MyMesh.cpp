@@ -412,6 +412,11 @@ void MyMesh::onContactPathUpdated(const ContactInfo &contact) {
 }
 
 ContactInfo*  MyMesh::processAck(const uint8_t *data) {
+  if (_ui) {
+    uint32_t ack_crc;
+    memcpy(&ack_crc, data, 4);
+    _ui->onAckRecv(ack_crc);
+  }
   // see if matches any in a table
   for (int i = 0; i < EXPECTED_ACK_TABLE_SIZE; i++) {
     if (memcmp(data, &expected_ack_table[i].ack, 4) == 0) { // got an ACK from recipient
@@ -468,6 +473,7 @@ void MyMesh::queueMessage(const ContactInfo &from, uint8_t txt_type, mesh::Packe
   // we only want to show text messages on display, not cli data
   bool should_display = txt_type == TXT_TYPE_PLAIN || txt_type == TXT_TYPE_SIGNED_PLAIN;
   if (should_display && _ui) {
+    _ui->onContactMsg(from, path_len, sender_timestamp, text, pkt->getSNR());
     _ui->newMsg(path_len, from.name, text, offline_queue_len);
     if (!_serial->isConnected()) {
       _ui->notify(UIEventType::contactMessage);
@@ -585,7 +591,10 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
   if (getChannel(channel_idx, channel_details)) {
     channel_name = channel_details.name;
   }
-  if (_ui) _ui->newMsg(path_len, channel_name, text, offline_queue_len);
+  if (_ui) {
+    _ui->onChannelMsg(channel_idx, channel_name, path_len, timestamp, text, pkt->getSNR());
+    _ui->newMsg(path_len, channel_name, text, offline_queue_len);
+  }
 #endif
 }
 
@@ -1110,6 +1119,7 @@ void MyMesh::handleCmdFrame(size_t len) {
       if (result == MSG_SEND_FAILED) {
         writeErrFrame(ERR_CODE_TABLE_FULL);
       } else {
+        if (_ui && txt_type == TXT_TYPE_PLAIN) _ui->onAppSentDirect(*recipient, text, attempt, expected_ack);
         if (expected_ack) {
           expected_ack_table[next_ack_idx].msg_sent = _ms->getMillis(); // add to circular table
           expected_ack_table[next_ack_idx].ack = expected_ack;
@@ -1143,6 +1153,7 @@ void MyMesh::handleCmdFrame(size_t len) {
       ChannelDetails channel;
       bool success = getChannel(channel_idx, channel);
       if (success && sendGroupMessage(msg_timestamp, channel.channel, _prefs.node_name, text, len - i)) {
+        if (_ui) _ui->onAppSentChannel(channel_idx, text, len - i);
         writeOKFrame();
       } else {
         writeErrFrame(ERR_CODE_NOT_FOUND); // bad channel_idx
@@ -2244,6 +2255,50 @@ void MyMesh::loop() {
 #ifdef DISPLAY_CLASS
   if (_ui) _ui->setHasConnection(_serial->isConnected());
 #endif
+}
+
+int MyMesh::uiSendText(const uint8_t* pub_key_prefix, uint32_t timestamp, uint8_t attempt, const char* text,
+                       uint32_t& expected_ack, uint32_t& est_timeout) {
+  ContactInfo* recipient = lookupContactByPubKey(pub_key_prefix, 6);
+  if (recipient == NULL) return MSG_SEND_FAILED;
+  return sendMessage(*recipient, timestamp, attempt, text, expected_ack, est_timeout);
+}
+
+bool MyMesh::uiSendChannelText(uint8_t channel_idx, const char* text) {
+  ChannelDetails channel;
+  if (!getChannel(channel_idx, channel)) return false;
+  return sendGroupMessage(getRTCClock()->getCurrentTimeUnique(), channel.channel, _prefs.node_name, text, strlen(text));
+}
+
+bool MyMesh::uiSendAdvert(bool flood) {
+  mesh::Packet* pkt;
+  if (_prefs.advert_loc_policy == ADVERT_LOC_NONE) {
+    pkt = createSelfAdvert(_prefs.node_name);
+  } else {
+    pkt = createSelfAdvert(_prefs.node_name, sensors.node_lat, sensors.node_lon);
+  }
+  if (pkt == NULL) return false;
+  if (flood) {
+    TransportKey default_scope;
+    memcpy(&default_scope.key, _prefs.default_scope_key, sizeof(default_scope.key));
+    sendFloodScoped(default_scope, pkt, 0);
+  } else {
+    sendZeroHop(pkt);
+  }
+  return true;
+}
+
+bool MyMesh::uiResetPath(const uint8_t* pub_key_prefix) {
+  ContactInfo* c = lookupContactByPubKey(pub_key_prefix, 6);
+  if (c == NULL) return false;
+  c->out_path_len = OUT_PATH_UNKNOWN;
+  dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
+  return true;
+}
+
+bool MyMesh::uiShareContact(const uint8_t* pub_key_prefix) {
+  ContactInfo* c = lookupContactByPubKey(pub_key_prefix, 6);
+  return c != NULL && shareContactZeroHop(*c);
 }
 
 bool MyMesh::advert() {

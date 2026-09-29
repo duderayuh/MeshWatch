@@ -102,6 +102,14 @@ public:
 
   int  getRecentlyHeard(AdvertPath dest[], int max_num);
 
+  // Helpers for on-device UIs (contacts are addressed by 6-byte pub key prefix).
+  int  uiSendText(const uint8_t* pub_key_prefix, uint32_t timestamp, uint8_t attempt, const char* text,
+                  uint32_t& expected_ack, uint32_t& est_timeout);
+  bool uiSendChannelText(uint8_t channel_idx, const char* text);
+  bool uiSendAdvert(bool flood);
+  bool uiResetPath(const uint8_t* pub_key_prefix);
+  bool uiShareContact(const uint8_t* pub_key_prefix);
+
 protected:
   float getAirtimeBudgetFactor() const override;
   int getInterferenceThreshold() const override;
